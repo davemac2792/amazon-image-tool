@@ -30,26 +30,20 @@
       border: none;
       border-radius: 5px;
       cursor: pointer;
-      font-size: 16px;
     }
 
     .primary {
-      background: #0070f3;
+      background: #007bff;
       color: white;
     }
 
     .secondary {
-      background: #ddd;
-    }
-
-    input {
-      margin-top: 20px;
+      background: #ccc;
     }
 
     img {
-      max-width: 100%;
       margin-top: 20px;
-      border: 1px solid #ddd;
+      max-width: 100%;
     }
   </style>
 </head>
@@ -58,52 +52,36 @@
 
 <div class="container">
   <h1>Product Image Prep</h1>
-
   <p>Select what you want to do:</p>
 
-  <button class="primary" onclick="showMain()">Main Image (White Background)</button>
-  <button class="secondary" onclick="showSecondary()">Secondary Images</button>
+  <button class="primary">Main Image (White Background)</button>
+  <button class="secondary">Secondary Images</button>
 
-  <div id="uploadSection" style="display:none;">
-    <input type="file" id="fileInput" accept="image/*" />
-    <br>
-    <p id="status"></p>
-    <img id="preview" />
-  </div>
+  <br><br>
+
+  <input type="file" id="upload" />
+
+  <br>
+
+  <img id="result" />
 </div>
 
 <script>
-async function removeBackground(file) {
+document.querySelector("#upload").addEventListener("change", async function () {
+  const file = this.files[0];
+
   const formData = new FormData();
   formData.append("image_file", file);
 
   const response = await fetch("/api/remove-bg", {
     method: "POST",
-    body: formData
+    body: formData,
   });
 
   const blob = await response.blob();
-  return URL.createObjectURL(blob);
-}
+  const imageUrl = URL.createObjectURL(blob);
 
-function showMain() {
-  document.getElementById('uploadSection').style.display = 'block';
-}
-
-function showSecondary() {
-  document.getElementById('uploadSection').style.display = 'block';
-}
-
-document.getElementById('fileInput').addEventListener('change', async function(event) {
-  const file = event.target.files[0];
-
-  document.getElementById('status').innerText = "Processing...";
-  document.getElementById('preview').src = "";
-
-  const result = await removeBackground(file);
-
-  document.getElementById('status').innerText = "";
-  document.getElementById('preview').src = result;
+  document.querySelector("#result").src = imageUrl;
 });
 </script>
 
