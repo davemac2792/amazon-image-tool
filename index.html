@@ -67,11 +67,25 @@
   <div id="uploadSection" style="display:none;">
     <input type="file" id="fileInput" accept="image/*" />
     <br>
+    <p id="status"></p>
     <img id="preview" />
   </div>
 </div>
 
 <script>
+async function removeBackground(file) {
+  const formData = new FormData();
+  formData.append("image_file", file);
+
+  const response = await fetch("/api/remove-bg", {
+    method: "POST",
+    body: formData
+  });
+
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
+}
+
 function showMain() {
   document.getElementById('uploadSection').style.display = 'block';
 }
@@ -80,17 +94,19 @@ function showSecondary() {
   document.getElementById('uploadSection').style.display = 'block';
 }
 
-document.getElementById('fileInput').addEventListener('change', function(event) {
+document.getElementById('fileInput').addEventListener('change', async function(event) {
   const file = event.target.files[0];
-  const reader = new FileReader();
 
-  reader.onload = function(e) {
-    document.getElementById('preview').src = e.target.result;
-  }
+  document.getElementById('status').innerText = "Processing...";
+  document.getElementById('preview').src = "";
 
-  reader.readAsDataURL(file);
+  const result = await removeBackground(file);
+
+  document.getElementById('status').innerText = "";
+  document.getElementById('preview').src = result;
 });
 </script>
 
 </body>
 </html>
+
