@@ -27,21 +27,24 @@ export default async function handler(req, res) {
       const fileBuffer = fs.readFileSync(uploadedFile.filepath);
 
       const formData = new FormData();
-      const blob = new Blob([fileBuffer], { type: uploadedFile.mimetype || "image/jpeg" });
-      formData.append("image_file", blob, uploadedFile.originalFilename || "upload.jpg");
+      const blob = new Blob([fileBuffer], {
+        type: uploadedFile.mimetype || "image/jpeg",
+      });
+
+      formData.append(
+        "imageFile",
+        blob,
+        uploadedFile.originalFilename || "upload.jpg"
+      );
+      formData.append("background.color", "FFFFFF");
+      formData.append("outputSize", "2000x2000");
 
       const response = await fetch("https://image-api.photoroom.com/v2/edit", {
         method: "POST",
         headers: {
           "x-api-key": process.env.PHOTOROOM_API_KEY,
         },
-        body: (() => {
-          const fd = new FormData();
-          fd.append("image_file", blob, uploadedFile.originalFilename || "upload.jpg");
-          fd.append("background.color", "FFFFFF");
-          fd.append("outputSize", "2000x2000");
-          return fd;
-        })(),
+        body: formData,
       });
 
       if (!response.ok) {
