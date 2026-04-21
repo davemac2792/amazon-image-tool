@@ -30,12 +30,18 @@ export default async function handler(req, res) {
       const blob = new Blob([fileBuffer], { type: uploadedFile.mimetype || "image/jpeg" });
       formData.append("image_file", blob, uploadedFile.originalFilename || "upload.jpg");
 
-      const response = await fetch("https://sdk.photoroom.com/v1/segment", {
+      const response = await fetch("https://image-api.photoroom.com/v2/edit", {
         method: "POST",
         headers: {
           "x-api-key": process.env.PHOTOROOM_API_KEY,
         },
-        body: formData,
+        body: (() => {
+          const fd = new FormData();
+          fd.append("image_file", blob, uploadedFile.originalFilename || "upload.jpg");
+          fd.append("background.color", "FFFFFF");
+          fd.append("outputSize", "2000x2000");
+          return fd;
+        })(),
       });
 
       if (!response.ok) {
