@@ -38,7 +38,10 @@ export default async function handler(req, res) {
         uploadedFile.originalFilename || "upload.jpg"
       );
 
-      const response = await fetch("https://sdk.photoroom.com/v1/segment", {
+      // ✅ USE WORKING ENDPOINT
+      formData.append("background.color", "FFFFFF");
+
+      const response = await fetch("https://image-api.photoroom.com/v2/edit", {
         method: "POST",
         headers: {
           "x-api-key": process.env.PHOTOROOM_API_KEY,
@@ -51,11 +54,11 @@ export default async function handler(req, res) {
         return res.status(response.status).json({ error: errorText });
       }
 
-      const segmentedArrayBuffer = await response.arrayBuffer();
-      const segmentedBuffer = Buffer.from(segmentedArrayBuffer);
+      const arrayBuffer = await response.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
 
-      // Resize the cutout so it fits within 85% of a 2000x2000 canvas
-      const resizedCutout = await sharp(segmentedBuffer)
+      // ✅ Resize to fit inside 85% of 2000x2000
+      const resized = await sharp(buffer)
         .resize({
           width: 1700,
           height: 1700,
@@ -65,25 +68,20 @@ export default async function handler(req, res) {
         .png()
         .toBuffer();
 
-      const metadata = await sharp(resizedCutout).metadata();
-      const left = Math.round((2000 - (metadata.width || 0)) / 2);
-      const top = Math.round((2000 - (metadata.height || 0)) / 2);
+      const metadata = await sharp(resized).metadata();
+      const left = Math.round((2000 - metadata.width) / 2);
+      const top = Math.round((2000 - metadata.height) / 2);
 
+      // ✅ Create final 2000x2000 white canvas
       const finalImage = await sharp({
         create: {
           width: 2000,
           height: 2000,
-          channels: 4,
-          background: { r: 255, g: 255, b: 255, alpha: 1 },
+          channels: 3,
+          background: { r: 255, g: 255, b: 255 },
         },
       })
-        .composite([
-          {
-            input: resizedCutout,
-            left,
-            top,
-          },
-        ])
+        .composite([{ input: resized, left, top }])
         .jpeg({ quality: 90 })
         .toBuffer();
 
