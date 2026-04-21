@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
     body {
-      font-family: Arial;
+      font-family: Arial, sans-serif;
       text-align: center;
       background: #f5f5f5;
       padding: 40px;
@@ -15,7 +15,7 @@
       background: white;
       padding: 30px;
       border-radius: 10px;
-      max-width: 500px;
+      max-width: 600px;
       margin: auto;
       box-shadow: 0 0 10px rgba(0,0,0,0.1);
     }
@@ -30,6 +30,7 @@
       border: none;
       border-radius: 5px;
       cursor: pointer;
+      font-size: 16px;
     }
 
     .primary {
@@ -39,9 +40,21 @@
 
     .secondary {
       background: #ccc;
+      color: black;
     }
 
-    img {
+    #uploadSection {
+      display: none;
+      margin-top: 20px;
+    }
+
+    #status {
+      margin-top: 15px;
+      font-size: 14px;
+      color: #555;
+    }
+
+    #result {
       margin-top: 20px;
       max-width: 100%;
     }
@@ -49,42 +62,84 @@
 </head>
 
 <body>
+  <div class="container">
+    <h1>Product Image Prep</h1>
+    <p>Select what you want to do:</p>
 
-<div class="container">
-  <h1>Product Image Prep</h1>
-  <p>Select what you want to do:</p>
+    <button class="primary" id="mainBtn">Main Image (White Background)</button>
+    <button class="secondary" id="secondaryBtn">Secondary Images</button>
 
-  <button class="primary">Main Image (White Background)</button>
-  <button class="secondary">Secondary Images</button>
+    <div id="uploadSection">
+      <input type="file" id="upload" accept="image/*" />
+      <div id="status"></div>
+      <img id="result" />
+    </div>
+  </div>
 
-  <br><br>
+  <script>
+    const mainBtn = document.getElementById("mainBtn");
+    const secondaryBtn = document.getElementById("secondaryBtn");
+    const uploadSection = document.getElementById("uploadSection");
+    const uploadInput = document.getElementById("upload");
+    const statusText = document.getElementById("status");
+    const resultImage = document.getElementById("result");
 
-  <input type="file" id="upload" />
+    let currentMode = "main";
 
-  <br>
+    mainBtn.addEventListener("click", () => {
+      currentMode = "main";
+      uploadSection.style.display = "block";
+      statusText.textContent = "Upload one image for background removal.";
+      resultImage.src = "";
+    });
 
-  <img id="result" />
-</div>
+    secondaryBtn.addEventListener("click", () => {
+      currentMode = "secondary";
+      uploadSection.style.display = "block";
+      statusText.textContent = "Secondary Images mode coming next.";
+      resultImage.src = "";
+    });
 
-<script>
-document.querySelector("#upload").addEventListener("change", async function () {
-  const file = this.files[0];
+    uploadInput.addEventListener("change", async function () {
+      const file = this.files[0];
+      if (!file) return;
 
-  const formData = new FormData();
-  formData.append("image_file", file);
+      if (currentMode !== "main") {
+        statusText.textContent = "Secondary Images mode is not wired up yet.";
+        resultImage.src = "";
+        return;
+      }
 
-  const response = await fetch("/api/remove-bg", {
-    method: "POST",
-    body: formData,
-  });
+      try {
+        statusText.textContent = "Processing...";
+        resultImage.src = "";
 
-  const blob = await response.blob();
-  const imageUrl = URL.createObjectURL(blob);
+        const formData = new FormData();
+        formData.append("image_file", file);
 
-  document.querySelector("#result").src = imageUrl;
-});
-</script>
+        const response = await fetch("/api/remove-bg", {
+          method: "POST",
+          body: formData,
+        });
 
+        if (!response.ok) {
+          const text = await response.text();
+          statusText.textContent = "Error processing image.";
+          console.error(text);
+          return;
+        }
+
+        const blob = await response.blob();
+        const imageUrl = URL.createObjectURL(blob);
+
+        resultImage.src = imageUrl;
+        statusText.textContent = "Done.";
+      } catch (error) {
+        statusText.textContent = "Something went wrong.";
+        console.error(error);
+      }
+    });
+  </script>
 </body>
 </html>
 
