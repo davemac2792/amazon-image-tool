@@ -58,6 +58,10 @@
       margin-top: 20px;
       max-width: 100%;
     }
+
+    #upload {
+      display: none;
+    }
   </style>
 </head>
 
@@ -89,8 +93,10 @@
     mainBtn.addEventListener("click", () => {
       currentMode = "main";
       uploadSection.style.display = "block";
-      statusText.textContent = "Upload one image for background removal.";
+      statusText.textContent = "Choose one image for background removal.";
       resultImage.src = "";
+      uploadInput.value = "";
+      uploadInput.click();
     });
 
     secondaryBtn.addEventListener("click", () => {
@@ -142,4 +148,3 @@
   </script>
 </body>
 </html>
-
