@@ -6,6 +6,7 @@ export const config = {
 
 import formidable from "formidable";
 import fs from "fs";
+import sharp from "sharp";
 
 export default async function handler(req, res) {
   const form = formidable({ multiples: false });
@@ -36,10 +37,8 @@ export default async function handler(req, res) {
         blob,
         uploadedFile.originalFilename || "upload.jpg"
       );
-      formData.append("background.color", "FFFFFF");
-      formData.append("outputSize", "2000x2000");
 
-      const response = await fetch("https://image-api.photoroom.com/v2/edit", {
+      const response = await fetch("https://sdk.photoroom.com/v1/segment", {
         method: "POST",
         headers: {
           "x-api-key": process.env.PHOTOROOM_API_KEY,
@@ -52,13 +51,48 @@ export default async function handler(req, res) {
         return res.status(response.status).json({ error: errorText });
       }
 
-      const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
+      const segmentedArrayBuffer = await response.arrayBuffer();
+      const segmentedBuffer = Buffer.from(segmentedArrayBuffer);
 
-      res.setHeader("Content-Type", "image/png");
-      return res.status(200).send(buffer);
+      // Resize the cutout so it fits within 85% of a 2000x2000 canvas
+      const resizedCutout = await sharp(segmentedBuffer)
+        .resize({
+          width: 1700,
+          height: 1700,
+          fit: "inside",
+          withoutEnlargement: true,
+        })
+        .png()
+        .toBuffer();
+
+      const metadata = await sharp(resizedCutout).metadata();
+      const left = Math.round((2000 - (metadata.width || 0)) / 2);
+      const top = Math.round((2000 - (metadata.height || 0)) / 2);
+
+      const finalImage = await sharp({
+        create: {
+          width: 2000,
+          height: 2000,
+          channels: 4,
+          background: { r: 255, g: 255, b: 255, alpha: 1 },
+        },
+      })
+        .composite([
+          {
+            input: resizedCutout,
+            left,
+            top,
+          },
+        ])
+        .jpeg({ quality: 90 })
+        .toBuffer();
+
+      res.setHeader("Content-Type", "image/jpeg");
+      return res.status(200).send(finalImage);
     } catch (error) {
-      return res.status(500).json({ error: error.message || "Failed to process image" });
+      return res.status(500).json({
+        error: error.message || "Failed to process image",
+      });
     }
   });
 }
