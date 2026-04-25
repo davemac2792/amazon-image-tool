@@ -59,16 +59,12 @@
       margin: 0 auto 15px;
       position: relative;
       overflow: hidden;
-      display: flex;
-      align-items: center;
-      justify-content: center;
     }
 
     .main-preview img {
       user-select: none;
       cursor: grab;
       position: absolute;
-      transform-origin: center center;
       max-width: none;
       max-height: none;
     }
@@ -76,6 +72,10 @@
     .placeholder {
       color: #999;
       font-size: 18px;
+      height: 520px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
 
     .download-btn {
@@ -141,6 +141,10 @@
 
       .main-preview {
         width: 90vw;
+        height: 90vw;
+      }
+
+      .placeholder {
         height: 90vw;
       }
     }
@@ -231,8 +235,6 @@
       statusText.textContent = "Processing main image...";
       placeholder.style.display = "none";
       largeImage.src = "";
-      largeImage.style.width = "";
-      largeImage.style.height = "";
       controls.style.display = "none";
       downloadMainBtn.style.display = "none";
       activeIndex = null;
@@ -253,13 +255,11 @@
       const blob = await response.blob();
       mainImageUrl = URL.createObjectURL(blob);
 
-      largeImage.style.transform = "translate(0px, 0px)";
       largeImage.src = mainImageUrl;
-
-      largeImage.onload = () => {
-        largeImage.style.width = "520px";
-        largeImage.style.height = "520px";
-      };
+      largeImage.style.width = "520px";
+      largeImage.style.height = "520px";
+      largeImage.style.left = "0px";
+      largeImage.style.top = "0px";
 
       statusText.textContent = "Main image ready.";
       downloadMainBtn.style.display = "inline-block";
@@ -284,16 +284,17 @@
 
         const imageData = {
           url,
-          naturalWidth: null,
-          naturalHeight: null,
+          naturalWidth: 0,
+          naturalHeight: 0,
+          baseDisplayWidth: 0,
+          baseDisplayHeight: 0,
           x: 0,
           y: 0,
-          scale: 1,
-          displayWidth: null,
-          displayHeight: null,
+          scale: 1
         };
 
         const loader = new Image();
+
         loader.onload = () => {
           imageData.naturalWidth = loader.naturalWidth;
           imageData.naturalHeight = loader.naturalHeight;
@@ -303,8 +304,8 @@
             PREVIEW_SIZE / imageData.naturalHeight
           );
 
-          imageData.displayWidth = imageData.naturalWidth * baseScale;
-          imageData.displayHeight = imageData.naturalHeight * baseScale;
+          imageData.baseDisplayWidth = imageData.naturalWidth * baseScale;
+          imageData.baseDisplayHeight = imageData.naturalHeight * baseScale;
 
           if (index === 0) {
             selectSecondary(0);
@@ -331,15 +332,13 @@
       activeIndex = index;
       const img = secondaryImages[index];
 
-      if (!img || !img.displayWidth || !img.displayHeight) return;
+      if (!img || !img.baseDisplayWidth || !img.baseDisplayHeight) return;
 
       placeholder.style.display = "none";
       largeImage.src = img.url;
-      largeImage.style.width = `${img.displayWidth}px`;
-      largeImage.style.height = `${img.displayHeight}px`;
       zoomSlider.value = img.scale;
 
-      updateLargeImage();
+      updatePreviewImage();
 
       document.querySelectorAll(".thumb").forEach((thumb, i) => {
         thumb.classList.toggle("active", i === index);
@@ -351,20 +350,28 @@
       statusText.textContent = "Drag to refine • your download will reflect changes";
     }
 
-    function updateLargeImage() {
+    function updatePreviewImage() {
       if (activeIndex === null) return;
 
       const img = secondaryImages[activeIndex];
 
-      largeImage.style.transform =
-        `translate(${img.x}px, ${img.y}px) scale(${img.scale})`;
+      const displayWidth = img.baseDisplayWidth * img.scale;
+      const displayHeight = img.baseDisplayHeight * img.scale;
+
+      const left = (PREVIEW_SIZE - displayWidth) / 2 + img.x;
+      const top = (PREVIEW_SIZE - displayHeight) / 2 + img.y;
+
+      largeImage.style.width = `${displayWidth}px`;
+      largeImage.style.height = `${displayHeight}px`;
+      largeImage.style.left = `${left}px`;
+      largeImage.style.top = `${top}px`;
     }
 
     zoomSlider.addEventListener("input", function () {
       if (activeIndex === null) return;
 
       secondaryImages[activeIndex].scale = parseFloat(this.value);
-      updateLargeImage();
+      updatePreviewImage();
     });
 
     largeImage.addEventListener("dragstart", function (e) {
@@ -395,7 +402,7 @@
       startX = e.clientX;
       startY = e.clientY;
 
-      updateLargeImage();
+      updatePreviewImage();
     });
 
     window.addEventListener("mouseup", function () {
@@ -422,17 +429,15 @@
             EXPORT_SIZE / img.naturalHeight
           );
 
-          const finalScale = baseScale * imgData.scale;
-
-          const drawWidth = img.naturalWidth * finalScale;
-          const drawHeight = img.naturalHeight * finalScale;
+          const exportWidth = img.naturalWidth * baseScale * imgData.scale;
+          const exportHeight = img.naturalHeight * baseScale * imgData.scale;
 
           const ratio = EXPORT_SIZE / PREVIEW_SIZE;
 
-          const x = (EXPORT_SIZE - drawWidth) / 2 + (imgData.x * ratio);
-          const y = (EXPORT_SIZE - drawHeight) / 2 + (imgData.y * ratio);
+          const exportX = (EXPORT_SIZE - exportWidth) / 2 + (imgData.x * ratio);
+          const exportY = (EXPORT_SIZE - exportHeight) / 2 + (imgData.y * ratio);
 
-          ctx.drawImage(img, x, y, drawWidth, drawHeight);
+          ctx.drawImage(img, exportX, exportY, exportWidth, exportHeight);
 
           canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.9);
         };
