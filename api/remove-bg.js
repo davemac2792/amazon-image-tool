@@ -27,18 +27,12 @@ export default async function handler(req, res) {
 
       const fileBuffer = fs.readFileSync(uploadedFile.filepath);
 
-      const formData = new FormData();
       const blob = new Blob([fileBuffer], {
         type: uploadedFile.mimetype || "image/jpeg",
       });
 
-      formData.append(
-        "imageFile",
-        blob,
-        uploadedFile.originalFilename || "upload.jpg"
-      );
-
-      // ✅ USE WORKING ENDPOINT
+      const formData = new FormData();
+      formData.append("imageFile", blob, uploadedFile.originalFilename || "upload.jpg");
       formData.append("background.color", "FFFFFF");
 
       const response = await fetch("https://image-api.photoroom.com/v2/edit", {
@@ -55,24 +49,40 @@ export default async function handler(req, res) {
       }
 
       const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
+      const photoroomBuffer = Buffer.from(arrayBuffer);
 
-      // ✅ Resize to fit inside 85% of 2000x2000
-      const resized = await sharp(buffer)
+      // Trim white padding around the subject
+      let trimmedBuffer;
+
+      try {
+        trimmedBuffer = await sharp(photoroomBuffer)
+          .trim({
+            background: "#FFFFFF",
+            threshold: 12,
+          })
+          .png()
+          .toBuffer();
+      } catch {
+        trimmedBuffer = photoroomBuffer;
+      }
+
+      // Resize subject so it fills about 85% of 2000x2000
+      const resizedSubject = await sharp(trimmedBuffer)
         .resize({
           width: 1700,
           height: 1700,
           fit: "inside",
-          withoutEnlargement: true,
+          withoutEnlargement: false,
         })
         .png()
         .toBuffer();
 
-      const metadata = await sharp(resized).metadata();
+      const metadata = await sharp(resizedSubject).metadata();
+
       const left = Math.round((2000 - metadata.width) / 2);
       const top = Math.round((2000 - metadata.height) / 2);
 
-      // ✅ Create final 2000x2000 white canvas
+      // Place trimmed/resized subject on final white Amazon-ready canvas
       const finalImage = await sharp({
         create: {
           width: 2000,
@@ -81,7 +91,13 @@ export default async function handler(req, res) {
           background: { r: 255, g: 255, b: 255 },
         },
       })
-        .composite([{ input: resized, left, top }])
+        .composite([
+          {
+            input: resizedSubject,
+            left,
+            top,
+          },
+        ])
         .jpeg({ quality: 90 })
         .toBuffer();
 
