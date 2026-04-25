@@ -69,12 +69,12 @@
     }
 
     .main-preview img {
-      max-width: 100%;
-      max-height: 100%;
       user-select: none;
       cursor: grab;
       position: absolute;
       transform-origin: center center;
+      max-width: none;
+      max-height: none;
     }
 
     .placeholder {
@@ -182,7 +182,7 @@
       </div>
 
       <div class="controls" id="controls">
-        <div>Images are ready • drag to refine framing if needed</div>
+        <div>Drag to refine • your download will reflect changes</div>
         <label>
           Zoom:
           <input type="range" id="zoomSlider" min="0.5" max="2.5" step="0.01" value="1" />
@@ -199,6 +199,9 @@
   </div>
 
   <script>
+    const PREVIEW_SIZE = 520;
+    const EXPORT_SIZE = 2000;
+
     const mainUploadBox = document.getElementById("mainUploadBox");
     const secondaryUploadBox = document.getElementById("secondaryUploadBox");
     const mainUpload = document.getElementById("mainUpload");
@@ -230,6 +233,8 @@
       statusText.textContent = "Processing main image...";
       placeholder.style.display = "none";
       largeImage.src = "";
+      largeImage.style.width = "";
+      largeImage.style.height = "";
       controls.style.display = "none";
       downloadMainBtn.style.display = "none";
       downloadZipBtn.style.display = secondaryImages.length > 0 ? "inline-block" : "none";
@@ -251,8 +256,13 @@
       const blob = await response.blob();
       mainImageUrl = URL.createObjectURL(blob);
 
-      largeImage.style.transform = "translate(0px, 0px) scale(1)";
+      largeImage.style.transform = "translate(0px, 0px)";
       largeImage.src = mainImageUrl;
+      largeImage.onload = () => {
+        largeImage.style.width = "520px";
+        largeImage.style.height = "520px";
+      };
+
       statusText.textContent = "Main image ready.";
       downloadMainBtn.style.display = "inline-block";
     });
@@ -274,12 +284,33 @@
       files.forEach((file, index) => {
         const url = URL.createObjectURL(file);
 
-        secondaryImages.push({
+        const imageData = {
           url,
+          naturalWidth: null,
+          naturalHeight: null,
           x: 0,
           y: 0,
           scale: 1,
-        });
+          displayWidth: null,
+          displayHeight: null,
+        };
+
+        const loader = new Image();
+        loader.onload = () => {
+          imageData.naturalWidth = loader.naturalWidth;
+          imageData.naturalHeight = loader.naturalHeight;
+
+          const baseScale = Math.max(PREVIEW_SIZE / imageData.naturalWidth, PREVIEW_SIZE / imageData.naturalHeight);
+          imageData.displayWidth = imageData.naturalWidth * baseScale;
+          imageData.displayHeight = imageData.naturalHeight * baseScale;
+
+          if (index === 0) {
+            selectSecondary(0);
+          }
+        };
+        loader.src = url;
+
+        secondaryImages.push(imageData);
 
         const thumb = document.createElement("img");
         thumb.src = url;
@@ -289,7 +320,6 @@
       });
 
       if (secondaryImages.length > 0) {
-        selectSecondary(0);
         downloadZipBtn.style.display = "inline-block";
         statusText.textContent = "Images are ready • drag to refine framing if needed";
       }
@@ -299,8 +329,14 @@
       activeIndex = index;
       const img = secondaryImages[index];
 
+      if (!img || !img.displayWidth || !img.displayHeight) {
+        return;
+      }
+
       placeholder.style.display = "none";
       largeImage.src = img.url;
+      largeImage.style.width = `${img.displayWidth}px`;
+      largeImage.style.height = `${img.displayHeight}px`;
       zoomSlider.value = img.scale;
       updateLargeImage();
 
@@ -311,7 +347,7 @@
       controls.style.display = "block";
       downloadMainBtn.style.display = "none";
       downloadZipBtn.style.display = "inline-block";
-      statusText.textContent = "Images are ready • drag to refine framing if needed";
+      statusText.textContent = "Drag to refine • your download will reflect changes";
     }
 
     function updateLargeImage() {
@@ -372,22 +408,24 @@
 
         img.onload = function () {
           const canvas = document.createElement("canvas");
-          canvas.width = 2000;
-          canvas.height = 2000;
+          canvas.width = EXPORT_SIZE;
+          canvas.height = EXPORT_SIZE;
 
           const ctx = canvas.getContext("2d");
 
           ctx.fillStyle = "#ffffff";
-          ctx.fillRect(0, 0, 2000, 2000);
+          ctx.fillRect(0, 0, EXPORT_SIZE, EXPORT_SIZE);
 
-          const baseScale = Math.max(2000 / img.width, 2000 / img.height);
+          const baseScale = Math.max(EXPORT_SIZE / img.naturalWidth, EXPORT_SIZE / img.naturalHeight);
           const finalScale = baseScale * imgData.scale;
 
-          const drawWidth = img.width * finalScale;
-          const drawHeight = img.height * finalScale;
+          const drawWidth = img.naturalWidth * finalScale;
+          const drawHeight = img.naturalHeight * finalScale;
 
-          const x = (2000 - drawWidth) / 2 + (imgData.x * 4);
-          const y = (2000 - drawHeight) / 2 + (imgData.y * 4);
+          const ratio = EXPORT_SIZE / PREVIEW_SIZE;
+
+          const x = (EXPORT_SIZE - drawWidth) / 2 + (imgData.x * ratio);
+          const y = (EXPORT_SIZE - drawHeight) / 2 + (imgData.y * ratio);
 
           ctx.drawImage(img, x, y, drawWidth, drawHeight);
 
