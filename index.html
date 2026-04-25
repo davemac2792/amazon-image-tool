@@ -74,6 +74,7 @@
       user-select: none;
       cursor: grab;
       position: absolute;
+      transform-origin: center center;
     }
 
     .placeholder {
@@ -177,11 +178,11 @@
 
       <div class="main-preview" id="mainPreview">
         <div class="placeholder" id="placeholder">Your image will appear here</div>
-        <img id="largeImage" />
+        <img id="largeImage" draggable="false" />
       </div>
 
       <div class="controls" id="controls">
-        <div>Drag image to reposition</div>
+        <div>Images are ready • drag to refine framing if needed</div>
         <label>
           Zoom:
           <input type="range" id="zoomSlider" min="0.5" max="2.5" step="0.01" value="1" />
@@ -208,14 +209,16 @@
     const downloadMainBtn = document.getElementById("downloadMainBtn");
     const downloadZipBtn = document.getElementById("downloadZipBtn");
     const thumbRow = document.getElementById("thumbRow");
-    const mainPreview = document.getElementById("mainPreview");
     const controls = document.getElementById("controls");
     const zoomSlider = document.getElementById("zoomSlider");
 
     let mainImageUrl = null;
     let secondaryImages = [];
     let activeIndex = null;
-    let dragStart = null;
+
+    let isDragging = false;
+    let startX = 0;
+    let startY = 0;
 
     mainUploadBox.addEventListener("click", () => mainUpload.click());
     secondaryUploadBox.addEventListener("click", () => secondaryUpload.click());
@@ -229,6 +232,8 @@
       largeImage.src = "";
       controls.style.display = "none";
       downloadMainBtn.style.display = "none";
+      downloadZipBtn.style.display = secondaryImages.length > 0 ? "inline-block" : "none";
+      activeIndex = null;
 
       const formData = new FormData();
       formData.append("image_file", file);
@@ -286,7 +291,7 @@
       if (secondaryImages.length > 0) {
         selectSecondary(0);
         downloadZipBtn.style.display = "inline-block";
-        statusText.textContent = "Click each image and drag to adjust.";
+        statusText.textContent = "Images are ready • drag to refine framing if needed";
       }
     });
 
@@ -305,11 +310,13 @@
 
       controls.style.display = "block";
       downloadMainBtn.style.display = "none";
-      statusText.textContent = "Drag to adjust this image.";
+      downloadZipBtn.style.display = "inline-block";
+      statusText.textContent = "Images are ready • drag to refine framing if needed";
     }
 
     function updateLargeImage() {
       if (activeIndex === null) return;
+
       const img = secondaryImages[activeIndex];
 
       largeImage.style.transform =
@@ -318,44 +325,56 @@
 
     zoomSlider.addEventListener("input", function () {
       if (activeIndex === null) return;
+
       secondaryImages[activeIndex].scale = parseFloat(this.value);
       updateLargeImage();
+    });
+
+    largeImage.addEventListener("dragstart", function (e) {
+      e.preventDefault();
     });
 
     largeImage.addEventListener("mousedown", function (e) {
       if (activeIndex === null) return;
 
-      dragStart = {
-        mouseX: e.clientX,
-        mouseY: e.clientY,
-        startX: secondaryImages[activeIndex].x,
-        startY: secondaryImages[activeIndex].y,
-      };
+      e.preventDefault();
+
+      isDragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
 
       largeImage.style.cursor = "grabbing";
     });
 
     window.addEventListener("mousemove", function (e) {
-      if (!dragStart || activeIndex === null) return;
+      if (!isDragging || activeIndex === null) return;
 
-      secondaryImages[activeIndex].x = dragStart.startX + (e.clientX - dragStart.mouseX);
-      secondaryImages[activeIndex].y = dragStart.startY + (e.clientY - dragStart.mouseY);
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+
+      secondaryImages[activeIndex].x += dx;
+      secondaryImages[activeIndex].y += dy;
+
+      startX = e.clientX;
+      startY = e.clientY;
 
       updateLargeImage();
     });
 
     window.addEventListener("mouseup", function () {
-      dragStart = null;
+      isDragging = false;
       largeImage.style.cursor = "grab";
     });
 
     async function renderSecondaryImage(imgData) {
       return new Promise((resolve) => {
         const img = new Image();
+
         img.onload = function () {
           const canvas = document.createElement("canvas");
           canvas.width = 2000;
           canvas.height = 2000;
+
           const ctx = canvas.getContext("2d");
 
           ctx.fillStyle = "#ffffff";
