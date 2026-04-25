@@ -51,8 +51,8 @@ export default async function handler(req, res) {
       const arrayBuffer = await response.arrayBuffer();
       const photoroomBuffer = Buffer.from(arrayBuffer);
 
-      // 🔥 Trim white padding around subject
       let trimmedBuffer;
+
       try {
         trimmedBuffer = await sharp(photoroomBuffer)
           .trim({
@@ -65,11 +65,10 @@ export default async function handler(req, res) {
         trimmedBuffer = photoroomBuffer;
       }
 
-      // 🔥 UPDATED: scale subject larger (85–90% fill)
       const resizedSubject = await sharp(trimmedBuffer)
         .resize({
-          width: 1850,
-          height: 1850,
+          width: 1780,
+          height: 1780,
           fit: "inside",
           withoutEnlargement: false,
         })
@@ -81,7 +80,6 @@ export default async function handler(req, res) {
       const left = Math.round((2000 - metadata.width) / 2);
       const top = Math.round((2000 - metadata.height) / 2);
 
-      // 🔥 Final Amazon-ready image
       const finalImage = await sharp({
         create: {
           width: 2000,
@@ -102,7 +100,6 @@ export default async function handler(req, res) {
 
       res.setHeader("Content-Type", "image/jpeg");
       return res.status(200).send(finalImage);
-
     } catch (error) {
       return res.status(500).json({
         error: error.message || "Failed to process image",
