@@ -38,10 +38,13 @@
       text-align: center;
       cursor: pointer;
       box-shadow: 0 0 10px rgba(0,0,0,0.06);
+      transition: all 0.15s ease;
     }
 
-    .upload-box:hover {
+    .upload-box:hover,
+    .upload-box.drag-over {
       border-color: #007bff;
+      background: #f0f7ff;
     }
 
     .preview-section {
@@ -160,13 +163,13 @@
       <div class="upload-box" id="mainUploadBox">
         <h2>Main Image</h2>
         <p>Remove background • Add white background • Resize to 2000×2000</p>
-        <strong>Click to upload main image</strong>
+        <strong>Click or drag one main image here</strong>
       </div>
 
       <div class="upload-box" id="secondaryUploadBox">
         <h2>Additional Images</h2>
         <p>Upload up to 8 images • Click each image • Drag to adjust</p>
-        <strong>Click to upload additional images</strong>
+        <strong>Click or drag additional images here</strong>
       </div>
     </div>
 
@@ -243,13 +246,63 @@
       }, 500);
     }
 
+    function getImageFiles(fileList) {
+      return Array.from(fileList).filter(file => file.type.startsWith("image/"));
+    }
+
+    // Prevent browser from opening dragged files in a new tab
+    ["dragenter", "dragover", "dragleave", "drop"].forEach(eventName => {
+      window.addEventListener(eventName, function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      });
+    });
+
+    function setupDropZone(box, onFilesDropped) {
+      box.addEventListener("dragenter", function () {
+        box.classList.add("drag-over");
+      });
+
+      box.addEventListener("dragover", function () {
+        box.classList.add("drag-over");
+      });
+
+      box.addEventListener("dragleave", function () {
+        box.classList.remove("drag-over");
+      });
+
+      box.addEventListener("drop", function (e) {
+        box.classList.remove("drag-over");
+
+        const files = getImageFiles(e.dataTransfer.files);
+
+        if (files.length === 0) {
+          statusText.textContent = "Please drop image files only.";
+          return;
+        }
+
+        onFilesDropped(files);
+      });
+    }
+
     mainUploadBox.addEventListener("click", () => mainUpload.click());
     secondaryUploadBox.addEventListener("click", () => secondaryUpload.click());
 
-    mainUpload.addEventListener("change", async function () {
+    setupDropZone(mainUploadBox, function (files) {
+      processMainImage(files[0]);
+    });
+
+    setupDropZone(secondaryUploadBox, function (files) {
+      processSecondaryImages(files.slice(0, 8));
+    });
+
+    mainUpload.addEventListener("change", function () {
       const file = this.files[0];
       if (!file) return;
+      processMainImage(file);
+    });
 
+    async function processMainImage(file) {
       statusText.textContent = "Processing main image...";
       placeholder.style.display = "none";
       largeImage.src = "";
@@ -286,7 +339,7 @@
 
       statusText.textContent = "Main image ready.";
       downloadMainBtn.style.display = "inline-block";
-    });
+    }
 
     downloadMainBtn.addEventListener("click", () => {
       if (!mainImageBlob) return;
@@ -294,11 +347,15 @@
     });
 
     secondaryUpload.addEventListener("change", function () {
-      const files = Array.from(this.files).slice(0, 8);
+      const files = getImageFiles(this.files).slice(0, 8);
+      processSecondaryImages(files);
+    });
+
+    function processSecondaryImages(files) {
       secondaryImages = [];
       thumbRow.innerHTML = "";
 
-      files.forEach((file, index) => {
+      files.slice(0, 8).forEach((file, index) => {
         const url = URL.createObjectURL(file);
 
         const imageData = {
@@ -345,7 +402,7 @@
         downloadZipBtn.style.display = "inline-block";
         statusText.textContent = "Images are ready • drag to refine framing if needed";
       }
-    });
+    }
 
     function selectSecondary(index) {
       activeIndex = index;
