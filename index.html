@@ -133,6 +133,11 @@
       min-height: 20px;
     }
 
+    .warning {
+      color: #9a6700;
+      font-weight: 600;
+    }
+
     input[type="file"] {
       display: none;
     }
@@ -207,6 +212,8 @@
     const PREVIEW_SIZE = 520;
     const EXPORT_SIZE = 2000;
     const MAX_SECONDARY_IMAGES = 8;
+    const MAIN_SUBJECT_FILL = 0.86;
+    const LOW_RES_THRESHOLD = 1000;
 
     const mainUploadBox = document.getElementById("mainUploadBox");
     const secondaryUploadBox = document.getElementById("secondaryUploadBox");
@@ -251,6 +258,169 @@
       return Array.from(fileList).filter(file => file.type.startsWith("image/"));
     }
 
+    function setStatus(message, isWarning = false) {
+      statusText.textContent = message;
+      statusText.className = isWarning ? "status warning" : "status";
+    }
+
+    function loadImageFromBlob(blob) {
+      return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+
+        img.onload = () => {
+          resolve({ img, url });
+        };
+
+        img.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error("Could not load image."));
+        };
+
+        img.src = url;
+      });
+    }
+
+    function getSourceImageSize(file) {
+      return new Promise((resolve) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+
+        img.onload = () => {
+          const size = {
+            width: img.naturalWidth,
+            height: img.naturalHeight
+          };
+
+          URL.revokeObjectURL(url);
+          resolve(size);
+        };
+
+        img.onerror = () => {
+          URL.revokeObjectURL(url);
+          resolve({ width: 0, height: 0 });
+        };
+
+        img.src = url;
+      });
+    }
+
+    function findSubjectBounds(canvas, ctx) {
+      const width = canvas.width;
+      const height = canvas.height;
+      const data = ctx.getImageData(0, 0, width, height).data;
+
+      let minX = width;
+      let minY = height;
+      let maxX = -1;
+      let maxY = -1;
+
+      let transparentPixels = 0;
+      const totalPixels = width * height;
+
+      for (let i = 3; i < data.length; i += 4) {
+        if (data[i] < 250) transparentPixels++;
+      }
+
+      const hasTransparency = transparentPixels > totalPixels * 0.01;
+
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const index = (y * width + x) * 4;
+
+          const r = data[index];
+          const g = data[index + 1];
+          const b = data[index + 2];
+          const a = data[index + 3];
+
+          let isSubjectPixel = false;
+
+          if (hasTransparency) {
+            isSubjectPixel = a > 20;
+          } else {
+            const isNearWhite = r > 245 && g > 245 && b > 245;
+            isSubjectPixel = !isNearWhite;
+          }
+
+          if (isSubjectPixel) {
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+          }
+        }
+      }
+
+      if (maxX < minX || maxY < minY) {
+        return {
+          x: 0,
+          y: 0,
+          width,
+          height
+        };
+      }
+
+      return {
+        x: minX,
+        y: minY,
+        width: maxX - minX + 1,
+        height: maxY - minY + 1
+      };
+    }
+
+    async function createAmazonMainImage(processedBlob) {
+      const loaded = await loadImageFromBlob(processedBlob);
+      const img = loaded.img;
+
+      const sourceCanvas = document.createElement("canvas");
+      sourceCanvas.width = img.naturalWidth;
+      sourceCanvas.height = img.naturalHeight;
+
+      const sourceCtx = sourceCanvas.getContext("2d");
+      sourceCtx.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
+      sourceCtx.drawImage(img, 0, 0);
+
+      const bounds = findSubjectBounds(sourceCanvas, sourceCtx);
+
+      const exportCanvas = document.createElement("canvas");
+      exportCanvas.width = EXPORT_SIZE;
+      exportCanvas.height = EXPORT_SIZE;
+
+      const exportCtx = exportCanvas.getContext("2d");
+      exportCtx.fillStyle = "#ffffff";
+      exportCtx.fillRect(0, 0, EXPORT_SIZE, EXPORT_SIZE);
+
+      const targetSubjectSize = EXPORT_SIZE * MAIN_SUBJECT_FILL;
+      const scale = targetSubjectSize / Math.max(bounds.width, bounds.height);
+
+      const drawWidth = bounds.width * scale;
+      const drawHeight = bounds.height * scale;
+
+      const drawX = (EXPORT_SIZE - drawWidth) / 2;
+      const drawY = (EXPORT_SIZE - drawHeight) / 2;
+
+      exportCtx.imageSmoothingEnabled = true;
+      exportCtx.imageSmoothingQuality = "high";
+
+      exportCtx.drawImage(
+        sourceCanvas,
+        bounds.x,
+        bounds.y,
+        bounds.width,
+        bounds.height,
+        drawX,
+        drawY,
+        drawWidth,
+        drawHeight
+      );
+
+      URL.revokeObjectURL(loaded.url);
+
+      return new Promise((resolve) => {
+        exportCanvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.92);
+      });
+    }
+
     ["dragenter", "dragover", "dragleave", "drop"].forEach(eventName => {
       window.addEventListener(eventName, function (e) {
         e.preventDefault();
@@ -277,7 +447,7 @@
         const files = getImageFiles(e.dataTransfer.files);
 
         if (files.length === 0) {
-          statusText.textContent = "Please drop image files only.";
+          setStatus("Please drop image files only.");
           return;
         }
 
@@ -311,42 +481,68 @@
     });
 
     async function processMainImage(file) {
-      statusText.textContent = "Processing main image...";
-      placeholder.style.display = "none";
-      largeImage.src = "";
-      controls.style.display = "none";
-      downloadMainBtn.style.display = "none";
-      activeIndex = null;
+      try {
+        setStatus("Processing main image...");
 
-      const formData = new FormData();
-      formData.append("image_file", file);
+        placeholder.style.display = "none";
+        largeImage.src = "";
+        controls.style.display = "none";
+        downloadMainBtn.style.display = "none";
+        activeIndex = null;
 
-      const response = await fetch("/api/remove-bg", {
-        method: "POST",
-        body: formData,
-      });
+        document.querySelectorAll(".thumb").forEach((thumb) => {
+          thumb.classList.remove("active");
+        });
 
-      if (!response.ok) {
-        statusText.textContent = "Error processing main image.";
-        return;
+        const sourceSize = await getSourceImageSize(file);
+
+        const isLowResolution =
+          sourceSize.width > 0 &&
+          sourceSize.height > 0 &&
+          (sourceSize.width < LOW_RES_THRESHOLD || sourceSize.height < LOW_RES_THRESHOLD);
+
+        const formData = new FormData();
+        formData.append("image_file", file);
+
+        const response = await fetch("/api/remove-bg", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!response.ok) {
+          setStatus("Error processing main image.");
+          return;
+        }
+
+        const removedBackgroundBlob = await response.blob();
+
+        setStatus("Framing main image to Amazon-ready size...");
+
+        mainImageBlob = await createAmazonMainImage(removedBackgroundBlob);
+
+        if (mainImageUrl) {
+          URL.revokeObjectURL(mainImageUrl);
+        }
+
+        mainImageUrl = URL.createObjectURL(mainImageBlob);
+
+        largeImage.src = mainImageUrl;
+        largeImage.style.width = "520px";
+        largeImage.style.height = "520px";
+        largeImage.style.left = "0px";
+        largeImage.style.top = "0px";
+
+        if (isLowResolution) {
+          setStatus("Main image ready. Low-resolution image detected. Output may appear blurry when resized to Amazon standards. Upload original for best results.", true);
+        } else {
+          setStatus("Main image ready.");
+        }
+
+        downloadMainBtn.style.display = "inline-block";
+      } catch (error) {
+        console.error(error);
+        setStatus("Error processing main image.");
       }
-
-      mainImageBlob = await response.blob();
-
-      if (mainImageUrl) {
-        URL.revokeObjectURL(mainImageUrl);
-      }
-
-      mainImageUrl = URL.createObjectURL(mainImageBlob);
-
-      largeImage.src = mainImageUrl;
-      largeImage.style.width = "520px";
-      largeImage.style.height = "520px";
-      largeImage.style.left = "0px";
-      largeImage.style.top = "0px";
-
-      statusText.textContent = "Main image ready.";
-      downloadMainBtn.style.display = "inline-block";
     }
 
     downloadMainBtn.addEventListener("click", () => {
@@ -358,14 +554,14 @@
       const availableSlots = MAX_SECONDARY_IMAGES - secondaryImages.length;
 
       if (availableSlots <= 0) {
-        statusText.textContent = "Maximum 8 additional images reached.";
+        setStatus("Maximum 8 additional images reached.");
         return;
       }
 
       const filesToAdd = getImageFiles(files).slice(0, availableSlots);
 
       if (filesToAdd.length === 0) {
-        statusText.textContent = "Please add image files only.";
+        setStatus("Please add image files only.");
         return;
       }
 
@@ -400,12 +596,8 @@
           imageData.baseDisplayWidth = imageData.naturalWidth * baseScale;
           imageData.baseDisplayHeight = imageData.naturalHeight * baseScale;
 
-          if (secondaryImages.length === filesToAdd.length && offset === 0) {
+          if (activeIndex === null) {
             selectSecondary(index);
-          }
-
-          if (activeIndex === null && index === 0) {
-            selectSecondary(0);
           }
         };
 
@@ -423,9 +615,9 @@
         downloadZipBtn.style.display = "inline-block";
 
         if (secondaryImages.length >= MAX_SECONDARY_IMAGES) {
-          statusText.textContent = "8 additional images ready • drag to refine framing if needed";
+          setStatus("8 additional images ready • drag to refine framing if needed");
         } else {
-          statusText.textContent = `${secondaryImages.length} additional image${secondaryImages.length === 1 ? "" : "s"} ready • you can add up to ${MAX_SECONDARY_IMAGES - secondaryImages.length} more`;
+          setStatus(`${secondaryImages.length} additional image${secondaryImages.length === 1 ? "" : "s"} ready • you can add up to ${MAX_SECONDARY_IMAGES - secondaryImages.length} more`);
         }
       }
     }
@@ -449,7 +641,7 @@
       controls.style.display = "block";
       downloadMainBtn.style.display = "none";
       downloadZipBtn.style.display = "inline-block";
-      statusText.textContent = "Drag to refine • your download will reflect changes";
+      setStatus("Drag to refine • your download will reflect changes");
     }
 
     function updatePreviewImage() {
@@ -539,6 +731,9 @@
           const exportX = (EXPORT_SIZE - exportWidth) / 2 + (imgData.x * ratio);
           const exportY = (EXPORT_SIZE - exportHeight) / 2 + (imgData.y * ratio);
 
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
+
           ctx.drawImage(img, exportX, exportY, exportWidth, exportHeight);
 
           canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.9);
@@ -551,7 +746,7 @@
     downloadZipBtn.addEventListener("click", async () => {
       if (secondaryImages.length === 0) return;
 
-      statusText.textContent = "Creating ZIP...";
+      setStatus("Creating ZIP...");
       const zip = new JSZip();
 
       for (let i = 0; i < secondaryImages.length; i++) {
@@ -562,7 +757,7 @@
       const zipBlob = await zip.generateAsync({ type: "blob" });
       downloadBlob(zipBlob, "additional-images.zip");
 
-      statusText.textContent = "ZIP ready.";
+      setStatus("ZIP ready.");
     });
   </script>
 </body>
