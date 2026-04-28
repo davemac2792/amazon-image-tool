@@ -218,12 +218,30 @@
     const zoomSlider = document.getElementById("zoomSlider");
 
     let mainImageUrl = null;
+    let mainImageBlob = null;
     let secondaryImages = [];
     let activeIndex = null;
 
     let isDragging = false;
     let startX = 0;
     let startY = 0;
+
+    function downloadBlob(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+
+      a.href = url;
+      a.download = filename;
+      a.style.display = "none";
+
+      document.body.appendChild(a);
+      a.click();
+
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 500);
+    }
 
     mainUploadBox.addEventListener("click", () => mainUpload.click());
     secondaryUploadBox.addEventListener("click", () => secondaryUpload.click());
@@ -252,8 +270,13 @@
         return;
       }
 
-      const blob = await response.blob();
-      mainImageUrl = URL.createObjectURL(blob);
+      mainImageBlob = await response.blob();
+
+      if (mainImageUrl) {
+        URL.revokeObjectURL(mainImageUrl);
+      }
+
+      mainImageUrl = URL.createObjectURL(mainImageBlob);
 
       largeImage.src = mainImageUrl;
       largeImage.style.width = "520px";
@@ -266,12 +289,8 @@
     });
 
     downloadMainBtn.addEventListener("click", () => {
-      if (!mainImageUrl) return;
-
-      const a = document.createElement("a");
-      a.href = mainImageUrl;
-      a.download = "main-image.jpg";
-      a.click();
+      if (!mainImageBlob) return;
+      downloadBlob(mainImageBlob, "main-image.jpg");
     });
 
     secondaryUpload.addEventListener("change", function () {
@@ -458,11 +477,7 @@
       }
 
       const zipBlob = await zip.generateAsync({ type: "blob" });
-
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(zipBlob);
-      a.download = "additional-images.zip";
-      a.click();
+      downloadBlob(zipBlob, "additional-images.zip");
 
       statusText.textContent = "ZIP ready.";
     });
