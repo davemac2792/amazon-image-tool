@@ -192,7 +192,7 @@
       </div>
 
       <div class="controls" id="controls">
-        <div>Drag to refine • your download will reflect changes</div>
+        <div id="controlMessage">Drag to refine • your download will reflect changes</div>
         <label>
           Zoom:
           <input type="range" id="zoomSlider" min="0.5" max="2.5" step="0.01" value="1" />
@@ -226,12 +226,25 @@
     const downloadZipBtn = document.getElementById("downloadZipBtn");
     const thumbRow = document.getElementById("thumbRow");
     const controls = document.getElementById("controls");
+    const controlMessage = document.getElementById("controlMessage");
     const zoomSlider = document.getElementById("zoomSlider");
 
     let mainImageUrl = null;
     let mainImageBlob = null;
+    let mainSourceCanvas = null;
+    let mainBounds = null;
+
+    let mainEdit = {
+      x: 0,
+      y: 0,
+      scale: 1,
+      baseDisplayWidth: 0,
+      baseDisplayHeight: 0
+    };
+
     let secondaryImages = [];
     let activeIndex = null;
+    let activeMode = null;
 
     let isDragging = false;
     let startX = 0;
@@ -368,57 +381,69 @@
       };
     }
 
-    async function createAmazonMainImage(processedBlob) {
-      const loaded = await loadImageFromBlob(processedBlob);
-      const img = loaded.img;
-
-      const sourceCanvas = document.createElement("canvas");
-      sourceCanvas.width = img.naturalWidth;
-      sourceCanvas.height = img.naturalHeight;
-
-      const sourceCtx = sourceCanvas.getContext("2d");
-      sourceCtx.clearRect(0, 0, sourceCanvas.width, sourceCanvas.height);
-      sourceCtx.drawImage(img, 0, 0);
-
-      const bounds = findSubjectBounds(sourceCanvas, sourceCtx);
-
-      const exportCanvas = document.createElement("canvas");
-      exportCanvas.width = EXPORT_SIZE;
-      exportCanvas.height = EXPORT_SIZE;
-
-      const exportCtx = exportCanvas.getContext("2d");
-      exportCtx.fillStyle = "#ffffff";
-      exportCtx.fillRect(0, 0, EXPORT_SIZE, EXPORT_SIZE);
-
-      const targetSubjectSize = EXPORT_SIZE * MAIN_SUBJECT_FILL;
-      const scale = targetSubjectSize / Math.max(bounds.width, bounds.height);
-
-      const drawWidth = bounds.width * scale;
-      const drawHeight = bounds.height * scale;
-
-      const drawX = (EXPORT_SIZE - drawWidth) / 2;
-      const drawY = (EXPORT_SIZE - drawHeight) / 2;
-
-      exportCtx.imageSmoothingEnabled = true;
-      exportCtx.imageSmoothingQuality = "high";
-
-      exportCtx.drawImage(
-        sourceCanvas,
-        bounds.x,
-        bounds.y,
-        bounds.width,
-        bounds.height,
-        drawX,
-        drawY,
-        drawWidth,
-        drawHeight
-      );
-
-      URL.revokeObjectURL(loaded.url);
-
+    function renderMainImageBlob() {
       return new Promise((resolve) => {
+        if (!mainSourceCanvas || !mainBounds) {
+          resolve(null);
+          return;
+        }
+
+        const exportCanvas = document.createElement("canvas");
+        exportCanvas.width = EXPORT_SIZE;
+        exportCanvas.height = EXPORT_SIZE;
+
+        const exportCtx = exportCanvas.getContext("2d");
+
+        exportCtx.fillStyle = "#ffffff";
+        exportCtx.fillRect(0, 0, EXPORT_SIZE, EXPORT_SIZE);
+
+        const baseScale = (EXPORT_SIZE * MAIN_SUBJECT_FILL) / Math.max(mainBounds.width, mainBounds.height);
+        const finalScale = baseScale * mainEdit.scale;
+
+        const drawWidth = mainBounds.width * finalScale;
+        const drawHeight = mainBounds.height * finalScale;
+
+        const ratio = EXPORT_SIZE / PREVIEW_SIZE;
+
+        const drawX = (EXPORT_SIZE - drawWidth) / 2 + (mainEdit.x * ratio);
+        const drawY = (EXPORT_SIZE - drawHeight) / 2 + (mainEdit.y * ratio);
+
+        exportCtx.imageSmoothingEnabled = true;
+        exportCtx.imageSmoothingQuality = "high";
+
+        exportCtx.drawImage(
+          mainSourceCanvas,
+          mainBounds.x,
+          mainBounds.y,
+          mainBounds.width,
+          mainBounds.height,
+          drawX,
+          drawY,
+          drawWidth,
+          drawHeight
+        );
+
         exportCanvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.92);
       });
+    }
+
+    async function updateMainPreviewAndBlob() {
+      const blob = await renderMainImageBlob();
+      if (!blob) return;
+
+      mainImageBlob = blob;
+
+      if (mainImageUrl) {
+        URL.revokeObjectURL(mainImageUrl);
+      }
+
+      mainImageUrl = URL.createObjectURL(mainImageBlob);
+
+      largeImage.src = mainImageUrl;
+      largeImage.style.width = "520px";
+      largeImage.style.height = "520px";
+      largeImage.style.left = "0px";
+      largeImage.style.top = "0px";
     }
 
     ["dragenter", "dragover", "dragleave", "drop"].forEach(eventName => {
@@ -489,6 +514,7 @@
         controls.style.display = "none";
         downloadMainBtn.style.display = "none";
         activeIndex = null;
+        activeMode = "main";
 
         document.querySelectorAll(".thumb").forEach((thumb) => {
           thumb.classList.remove("active");
@@ -518,24 +544,39 @@
 
         setStatus("Framing main image to Amazon-ready size...");
 
-        mainImageBlob = await createAmazonMainImage(removedBackgroundBlob);
+        const loaded = await loadImageFromBlob(removedBackgroundBlob);
+        const img = loaded.img;
 
-        if (mainImageUrl) {
-          URL.revokeObjectURL(mainImageUrl);
-        }
+        mainSourceCanvas = document.createElement("canvas");
+        mainSourceCanvas.width = img.naturalWidth;
+        mainSourceCanvas.height = img.naturalHeight;
 
-        mainImageUrl = URL.createObjectURL(mainImageBlob);
+        const sourceCtx = mainSourceCanvas.getContext("2d");
+        sourceCtx.clearRect(0, 0, mainSourceCanvas.width, mainSourceCanvas.height);
+        sourceCtx.drawImage(img, 0, 0);
 
-        largeImage.src = mainImageUrl;
-        largeImage.style.width = "520px";
-        largeImage.style.height = "520px";
-        largeImage.style.left = "0px";
-        largeImage.style.top = "0px";
+        mainBounds = findSubjectBounds(mainSourceCanvas, sourceCtx);
+
+        mainEdit = {
+          x: 0,
+          y: 0,
+          scale: 1,
+          baseDisplayWidth: PREVIEW_SIZE,
+          baseDisplayHeight: PREVIEW_SIZE
+        };
+
+        URL.revokeObjectURL(loaded.url);
+
+        await updateMainPreviewAndBlob();
+
+        zoomSlider.value = mainEdit.scale;
+        controls.style.display = "block";
+        controlMessage.textContent = "Drag or zoom to refine main image • your download will reflect changes";
 
         if (isLowResolution) {
           setStatus("Main image ready. Low-resolution image detected. Output may appear blurry when resized to Amazon standards. Upload original for best results.", true);
         } else {
-          setStatus("Main image ready.");
+          setStatus("Main image ready. Drag or zoom to refine if needed.");
         }
 
         downloadMainBtn.style.display = "inline-block";
@@ -545,9 +586,13 @@
       }
     }
 
-    downloadMainBtn.addEventListener("click", () => {
-      if (!mainImageBlob) return;
-      downloadBlob(mainImageBlob, "main-image.jpg");
+    downloadMainBtn.addEventListener("click", async () => {
+      if (!mainSourceCanvas || !mainBounds) return;
+
+      const freshBlob = await renderMainImageBlob();
+      if (!freshBlob) return;
+
+      downloadBlob(freshBlob, "main-image.jpg");
     });
 
     function addSecondaryImages(files) {
@@ -596,7 +641,7 @@
           imageData.baseDisplayWidth = imageData.naturalWidth * baseScale;
           imageData.baseDisplayHeight = imageData.naturalHeight * baseScale;
 
-          if (activeIndex === null) {
+          if (activeMode === null || activeMode === "main") {
             selectSecondary(index);
           }
         };
@@ -623,6 +668,7 @@
     }
 
     function selectSecondary(index) {
+      activeMode = "secondary";
       activeIndex = index;
       const img = secondaryImages[index];
 
@@ -639,13 +685,14 @@
       });
 
       controls.style.display = "block";
+      controlMessage.textContent = "Drag to refine • your download will reflect changes";
       downloadMainBtn.style.display = "none";
       downloadZipBtn.style.display = "inline-block";
       setStatus("Drag to refine • your download will reflect changes");
     }
 
     function updatePreviewImage() {
-      if (activeIndex === null) return;
+      if (activeMode !== "secondary" || activeIndex === null) return;
 
       const img = secondaryImages[activeIndex];
 
@@ -661,11 +708,26 @@
       largeImage.style.top = `${top}px`;
     }
 
-    zoomSlider.addEventListener("input", function () {
-      if (activeIndex === null) return;
+    let mainPreviewUpdateTimer = null;
 
-      secondaryImages[activeIndex].scale = parseFloat(this.value);
-      updatePreviewImage();
+    zoomSlider.addEventListener("input", function () {
+      const value = parseFloat(this.value);
+
+      if (activeMode === "main") {
+        mainEdit.scale = value;
+
+        clearTimeout(mainPreviewUpdateTimer);
+        mainPreviewUpdateTimer = setTimeout(() => {
+          updateMainPreviewAndBlob();
+        }, 80);
+
+        return;
+      }
+
+      if (activeMode === "secondary" && activeIndex !== null) {
+        secondaryImages[activeIndex].scale = value;
+        updatePreviewImage();
+      }
     });
 
     largeImage.addEventListener("dragstart", function (e) {
@@ -673,7 +735,7 @@
     });
 
     largeImage.addEventListener("mousedown", function (e) {
-      if (activeIndex === null) return;
+      if (activeMode !== "main" && activeMode !== "secondary") return;
 
       e.preventDefault();
 
@@ -685,21 +747,36 @@
     });
 
     window.addEventListener("mousemove", function (e) {
-      if (!isDragging || activeIndex === null) return;
+      if (!isDragging) return;
 
       const dx = e.clientX - startX;
       const dy = e.clientY - startY;
 
-      secondaryImages[activeIndex].x += dx;
-      secondaryImages[activeIndex].y += dy;
+      if (activeMode === "main") {
+        mainEdit.x += dx;
+        mainEdit.y += dy;
+
+        clearTimeout(mainPreviewUpdateTimer);
+        mainPreviewUpdateTimer = setTimeout(() => {
+          updateMainPreviewAndBlob();
+        }, 80);
+      }
+
+      if (activeMode === "secondary" && activeIndex !== null) {
+        secondaryImages[activeIndex].x += dx;
+        secondaryImages[activeIndex].y += dy;
+        updatePreviewImage();
+      }
 
       startX = e.clientX;
       startY = e.clientY;
-
-      updatePreviewImage();
     });
 
     window.addEventListener("mouseup", function () {
+      if (isDragging && activeMode === "main") {
+        updateMainPreviewAndBlob();
+      }
+
       isDragging = false;
       largeImage.style.cursor = "grab";
     });
