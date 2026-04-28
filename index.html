@@ -206,6 +206,7 @@
   <script>
     const PREVIEW_SIZE = 520;
     const EXPORT_SIZE = 2000;
+    const MAX_SECONDARY_IMAGES = 8;
 
     const mainUploadBox = document.getElementById("mainUploadBox");
     const secondaryUploadBox = document.getElementById("secondaryUploadBox");
@@ -250,7 +251,6 @@
       return Array.from(fileList).filter(file => file.type.startsWith("image/"));
     }
 
-    // Prevent browser from opening dragged files in a new tab
     ["dragenter", "dragover", "dragleave", "drop"].forEach(eventName => {
       window.addEventListener(eventName, function (e) {
         e.preventDefault();
@@ -293,13 +293,21 @@
     });
 
     setupDropZone(secondaryUploadBox, function (files) {
-      processSecondaryImages(files.slice(0, 8));
+      addSecondaryImages(files);
     });
 
     mainUpload.addEventListener("change", function () {
       const file = this.files[0];
       if (!file) return;
+
       processMainImage(file);
+      mainUpload.value = "";
+    });
+
+    secondaryUpload.addEventListener("change", function () {
+      const files = getImageFiles(this.files);
+      addSecondaryImages(files);
+      secondaryUpload.value = "";
     });
 
     async function processMainImage(file) {
@@ -346,16 +354,25 @@
       downloadBlob(mainImageBlob, "main-image.jpg");
     });
 
-    secondaryUpload.addEventListener("change", function () {
-      const files = getImageFiles(this.files).slice(0, 8);
-      processSecondaryImages(files);
-    });
+    function addSecondaryImages(files) {
+      const availableSlots = MAX_SECONDARY_IMAGES - secondaryImages.length;
 
-    function processSecondaryImages(files) {
-      secondaryImages = [];
-      thumbRow.innerHTML = "";
+      if (availableSlots <= 0) {
+        statusText.textContent = "Maximum 8 additional images reached.";
+        return;
+      }
 
-      files.slice(0, 8).forEach((file, index) => {
+      const filesToAdd = getImageFiles(files).slice(0, availableSlots);
+
+      if (filesToAdd.length === 0) {
+        statusText.textContent = "Please add image files only.";
+        return;
+      }
+
+      const startIndex = secondaryImages.length;
+
+      filesToAdd.forEach((file, offset) => {
+        const index = startIndex + offset;
         const url = URL.createObjectURL(file);
 
         const imageData = {
@@ -383,7 +400,11 @@
           imageData.baseDisplayWidth = imageData.naturalWidth * baseScale;
           imageData.baseDisplayHeight = imageData.naturalHeight * baseScale;
 
-          if (index === 0) {
+          if (secondaryImages.length === filesToAdd.length && offset === 0) {
+            selectSecondary(index);
+          }
+
+          if (activeIndex === null && index === 0) {
             selectSecondary(0);
           }
         };
@@ -400,7 +421,12 @@
 
       if (secondaryImages.length > 0) {
         downloadZipBtn.style.display = "inline-block";
-        statusText.textContent = "Images are ready • drag to refine framing if needed";
+
+        if (secondaryImages.length >= MAX_SECONDARY_IMAGES) {
+          statusText.textContent = "8 additional images ready • drag to refine framing if needed";
+        } else {
+          statusText.textContent = `${secondaryImages.length} additional image${secondaryImages.length === 1 ? "" : "s"} ready • you can add up to ${MAX_SECONDARY_IMAGES - secondaryImages.length} more`;
+        }
       }
     }
 
